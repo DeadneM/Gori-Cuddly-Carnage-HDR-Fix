@@ -1,0 +1,69 @@
+name: Build and publish v1.0.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Source/**"
+      - "README.md"
+      - "HASHES.md"
+      - "docs/**"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - name: Build patcher
+        shell: pwsh
+        run: |
+          go build -trimpath -ldflags="-s -w" -o Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe ./Source/gori_hdr_patcher.go
+
+      - name: Build release package
+        shell: pwsh
+        run: |
+          $stage = "release_stage"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe" "$stage/Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe"
+          Copy-Item "README.md" "$stage/README.md"
+          Copy-Item "HASHES.md" "$stage/HASHES.md"
+          Copy-Item "docs/STEAM_GUIDE.md" "$stage/STEAM_GUIDE.md"
+          New-Item -ItemType Directory -Force "$stage/Source" | Out-Null
+          Copy-Item "Source/gori_hdr_patcher.go" "$stage/Source/gori_hdr_patcher.go"
+
+          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v1.0.0.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -CompressionLevel Optimal
+
+          $patcherHash = (Get-FileHash "Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe" -Algorithm SHA256).Hash.ToLower()
+          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          @(
+            "$patcherHash  Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe"
+            "$zipHash  $zip"
+          ) | Set-Content -Encoding ascii SHA256SUMS.txt
+
+      - name: Create or update GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v1.0.0"
+          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v1.0.0.zip"
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag $zip SHA256SUMS.txt --clobber
+          } else {
+            gh release create $tag $zip SHA256SUMS.txt --target "${{ github.sha }}" --title "Gori HDR Fix v1.0.0" --notes-file "docs/RELEASE_NOTES_v1.0.0.md"
+          }
