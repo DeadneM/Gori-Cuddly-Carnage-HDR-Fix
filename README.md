@@ -1,5 +1,9 @@
 # Gori: Cuddly Carnage - HDR Monitor Detection Fix
 
+<p align="center">
+  <img src="images/Image%20Codex%2025%20sept.%202026,%2012_19_19.png" alt="Gori: Cuddly Carnage HDR Fix" width="100%">
+</p>
+
 A small Windows patch for **Gori: Cuddly Carnage** that fixes a case where the game incorrectly reports an HDR-capable display as unsupported, leaving the in-game HDR option greyed out.
 
 The validated fix works at **Gori's own options-data layer**. It does **not** replace the renderer, inject a DLL, or force Unreal Engine's low-level DXGI/D3D12 HDR detection.
