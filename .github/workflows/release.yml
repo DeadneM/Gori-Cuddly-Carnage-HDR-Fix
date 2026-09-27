@@ -1,15 +1,16 @@
-name: Build and publish v1.0.0
+name: Publish HDR Fix v2.0.0
 
 on:
   push:
     branches:
       - main
     paths:
-      - "Source/**"
+      - ".release-payload/**"
       - "README.md"
       - "HASHES.md"
       - "docs/**"
       - ".github/workflows/release.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,48 +23,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.x"
-
-      - name: Build patcher
+      - name: Reconstruct validated v2.0.0 package
         shell: pwsh
         run: |
-          go build -trimpath -ldflags="-s -w" -o Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe ./Source/gori_hdr_patcher.go
+          $parts = Get-ChildItem ".release-payload/v2.0.0.part*.b64" | Sort-Object Name
+          if (-not $parts) { throw "v2.0.0 release payload parts not found" }
 
-      - name: Build release package
-        shell: pwsh
-        run: |
-          $stage = "release_stage"
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          Copy-Item "Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe" "$stage/Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe"
-          Copy-Item "README.md" "$stage/README.md"
-          Copy-Item "HASHES.md" "$stage/HASHES.md"
-          Copy-Item "docs/STEAM_GUIDE.md" "$stage/STEAM_GUIDE.md"
-          New-Item -ItemType Directory -Force "$stage/Source" | Out-Null
-          Copy-Item "Source/gori_hdr_patcher.go" "$stage/Source/gori_hdr_patcher.go"
+          $base64 = ""
+          foreach ($part in $parts) {
+            $base64 += (Get-Content $part.FullName -Raw).Trim()
+          }
 
-          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v1.0.0.zip"
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path "$stage/*" -DestinationPath $zip -CompressionLevel Optimal
+          $bytes = [Convert]::FromBase64String($base64)
+          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip"
+          [IO.File]::WriteAllBytes($zip, $bytes)
 
-          $patcherHash = (Get-FileHash "Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe" -Algorithm SHA256).Hash.ToLower()
-          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          @(
-            "$patcherHash  Gori_Cuddly_Carnage_HDR_Fix_Patcher.exe"
-            "$zipHash  $zip"
-          ) | Set-Content -Encoding ascii SHA256SUMS.txt
+          $expected = "2ef4c8abf2fca83511632d4482abe174a59c1268646b56dac5e0687f254e0b94"
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) {
+            throw "Release payload hash mismatch. Expected $expected, found $actual"
+          }
 
-      - name: Create or update GitHub release
+          "$actual  $zip" | Set-Content -Encoding ascii SHA256SUMS.txt
+
+      - name: Create or update v2.0.0 release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v1.0.0"
-          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v1.0.0.zip"
+          $tag = "v2.0.0"
+          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip"
+
           if (gh release view $tag 2>$null) {
             gh release upload $tag $zip SHA256SUMS.txt --clobber
+            gh release edit $tag --title "Gori HDR Fix v2.0.0" --notes-file "docs/RELEASE_NOTES_v2.0.0.md"
           } else {
-            gh release create $tag $zip SHA256SUMS.txt --target "${{ github.sha }}" --title "Gori HDR Fix v1.0.0" --notes-file "docs/RELEASE_NOTES_v1.0.0.md"
+            gh release create $tag $zip SHA256SUMS.txt --target "${{ github.sha }}" --title "Gori HDR Fix v2.0.0" --notes-file "docs/RELEASE_NOTES_v2.0.0.md"
+          }
+
+      - name: Remove obsolete EXE patcher release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (gh release view "v1.0.0" 2>$null) {
+            gh release delete "v1.0.0" --yes --cleanup-tag
           }

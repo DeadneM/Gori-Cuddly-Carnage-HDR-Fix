@@ -1,147 +1,216 @@
 # Technical Notes
 
-## Validated base
+## Current canonical build
 
-The public fix is based on the **V4B** test build validated on the Steam x64 executable with SHA-256:
+**v2.0.0 / V16 Universal** is the current runtime HDR fix.
+
+Supported Steam x64 executable:
 
 ```text
+SHA-256:
 2bcd42db186018c3553d3e75dca34891255a3a3e0de3e6e663201febbec5e1d1
 ```
 
-The expected patched executable SHA-256 is:
+The old EXE patcher is obsolete. The current fix leaves the game executable untouched on disk.
 
-```text
-eaf1f82889201c0751f256560220611eafcf0533c37a8e2013ab6c9caa028748
-```
+## Original problem
 
-## Problem
+Gori could report a working HDR display as unsupported and grey out its HDR option. Investigation eventually showed that the problem was not one single switch. Several independent layers had to agree:
 
-On affected systems, Gori displays the HDR row as unavailable and reports that the monitor does not support High Dynamic Range, even though Windows HDR and the display's HDR capability are working.
+1. Gori's own saved/live monitor-capability field.
+2. Unreal's native HDR enable path.
+3. The live renderer HDR CVars.
+4. The DXGI swapchain HDR metadata/color-space state.
 
-The investigation deliberately separated two different layers:
+## V4B: validated Gori monitor-capability fix
 
-1. Unreal Engine / DXGI low-level HDR output detection.
-2. Gori's own menu and saved graphics-option state.
-
-The validated solution changes only the second layer.
-
-## Live game field
-
-Static analysis identified the game-side capability field:
+Static analysis identified:
 
 ```text
 GraphicSettings.DoesMonitorHaveHDRSupport
+GraphicSettings offset in OptionsData = +0xB0
+DoesMonitorHaveHDRSupport             = +0x65
+
+OptionsData + 0x115
 ```
 
-The live `GraphicSettings` block is embedded in `OptionsData` at offset `+0xB0`, while `DoesMonitorHaveHDRSupport` is at `GraphicSettings + 0x65`.
+The original V4B disk patch set this byte to `1` after options creation/load through a Win64-safe tail wrapper.
 
-Therefore:
+The runtime mod preserves the same validated behavior **in memory only**. The EXE is no longer patched on disk.
+
+### Historical V4B locations
 
 ```text
-OptionsData + 0x115 = DoesMonitorHaveHDRSupport
+VA 0x141A6501D / file 0x1A6461D
+VA 0x141A66387 / file 0x1A65987
+tail-wrapper cave VA 0x141A66451 / file 0x1A65A51
 ```
 
-V4B writes this byte to `1` immediately before Gori's normal initialization routine runs after options creation/load.
-
-## V4B patch
-
-### Original call sites redirected
-
-```text
-VA 0x141A6501D
-File offset 0x1A6461D
-
-Original:
-E8 2E 44 FD FF
-
-Patched:
-E8 2F 14 00 00
-```
-
-```text
-VA 0x141A66387
-File offset 0x1A65987
-
-Original:
-E8 C4 30 FD FF
-
-Patched:
-E8 C5 00 00 00
-```
-
-### Tail wrapper
-
-An existing INT3 padding region is used at:
-
-```text
-VA 0x141A66451
-File offset 0x1A65A51
-```
-
-Original 12 bytes:
-
-```text
-CC CC CC CC CC CC CC CC CC CC CC CC
-```
-
-V4B:
-
-```text
-C6 81 15 01 00 00 01 E9 F3 2F FD FF
-```
-
-Equivalent logic:
+Historical wrapper logic:
 
 ```asm
 mov byte ptr [rcx+115h], 1
 jmp 0x141A39450
 ```
 
-The **tail jump is intentional**. It preserves the caller's original Win64 stack and shadow-space layout, allowing the original routine to return directly to its original caller.
+## Runtime overlay architecture
 
-## Rejected branches
+The current mod consists of:
 
-### V1 - rejected: Fatal Error
+```text
+dxgi.dll
+    ↓ loads real System32 DXGI
+    ↓ loads GoriHDRFix.asi
+    ↓ observes/hooks Gori's DXGI/D3D12 swapchain
+    ↓ renders F10 overlay through D3D11On12
 
-V1 forced Unreal's low-level D3D12RHI/DXGI HDR color-space verdict. This was too deep in the renderer. Unreal then continued down a path that expected valid low-level HDR state and crashed.
+GoriHDRFix.asi
+    ↓ applies supported-build runtime fixes
+    ↓ drives Unreal HDR runtime state
+    ↓ reads/writes HDR profile values
+```
 
-**Lesson:** do not falsify the renderer's physical HDR capability merely to unlock Gori's menu.
+The overlay is rendered inside the game backbuffer. It is not an external topmost Win32 control window.
 
-### V2 - rejected: no effect on menu
+## Reverse-engineering progression
 
-V2 forced the generic Blueprint-exposed `SupportsHDRDisplayOutput()` result.
+### V1: rejected, Fatal Error
 
-Gori's HDR row remained greyed out, showing that its menu did not depend solely on that generic Unreal wrapper.
+A low-level D3D12RHI/DXGI capability verdict was falsified. Unreal continued down a renderer path whose low-level HDR state was not actually coherent and crashed.
 
-### V3 - rejected: no effect on menu
+**Lesson:** do not lie to the deepest physical HDR check just to unlock the UI.
 
-V3 forced `GraphicSettings.DoesMonitorHaveHDRSupport` during constructor paths.
+### V2: rejected, no menu effect
 
-The menu still reported the monitor as unsupported. Further analysis showed that loaded `OptionsData` could overwrite constructor-time values.
+The Blueprint-exposed `SupportsHDRDisplayOutput()` wrapper was forced true. Gori's menu remained locked.
 
-### V4 - rejected: Fatal Error
+### V3: rejected, no menu effect
 
-V4 correctly targeted the post-load value but used a nested Win64 `CALL` from the trampoline without allocating a fresh 32-byte shadow space.
+`DoesMonitorHaveHDRSupport` was changed only during construction. Loaded options could overwrite it.
 
-The called function could overwrite the trampoline's return address.
+### V4: rejected, Fatal Error
 
-### V4B - validated
+The correct post-load field was found, but the first trampoline used a nested Win64 `CALL` without a fresh shadow-space frame.
 
-V4B retained the post-load target but replaced the nested call with a **tail jump**.
+### V4B: validated
 
-This preserved the ABI correctly and unlocked the HDR option without touching the renderer.
+The post-load write was retained and the trampoline changed to a tail jump. This became the stable monitor-detection fix.
 
-## Scope intentionally left vanilla
+### V5 / V6B: overlay and diagnostics validated
 
-The validated patch does not modify:
+A true DXGI/D3D12 in-game overlay was implemented. Input handling and fullscreen/windowed swapchain rebuilds were fixed.
 
-- DXGI output enumeration
-- DXGI color-space detection
-- D3D12RHI
-- `GRHISupportsHDROutput`
-- swapchain creation
-- HDR tone mapping
-- display resolution
-- fullscreen handling
+Telemetry then proved:
 
-This narrow scope is deliberate.
+```text
+Swapchain: R10G10B10A2_UNORM
+Gori initially: no SetColorSpace1 observed
+Gori initially: no SetHDRMetaData observed
+```
+
+### V7 / V8: rejected output, useful proof
+
+Forcing the swapchain directly to HDR10 PQ / Rec.2020 successfully activated HDR output, but colors became severely oversaturated.
+
+This proved the display and DXGI path could present HDR10, while also proving that **forcing only the final DXGI color space was insufficient**.
+
+### V11: native function trace
+
+The real `UGameUserSettings::EnableHDRDisplayOutput()` path was traced. Gori repeatedly reached the function but initially supplied:
+
+```text
+bEnable = 0
+DisplayNits = 1000
+bFromUserSettings = 1
+```
+
+This moved the investigation from speculation to the actual engine call path.
+
+### V13: native HDR path reaches metadata
+
+After correcting the runtime UE/RHI enable state, Unreal began emitting:
+
+```text
+SetHDRMetaData(HDR10)
+```
+
+but no matching `SetColorSpace1(PQ / Rec.2020)` was observed.
+
+### V14: DXGI color-space completion
+
+The proxy began completing the missing color-space transition only **after** Unreal itself successfully emitted HDR10 metadata.
+
+That established a coherent DXGI HDR10 state, but the rendered image was still oversaturated.
+
+### V15: working HDR output
+
+The remaining issue was the live Unreal renderer state. INI values did not prove the active runtime CVars had actually changed.
+
+V15 set Unreal's actual runtime CVar objects through the engine's own setter:
+
+```text
+r.HDR.EnableHDROutput       = 1
+r.HDR.Display.OutputDevice  = 3
+r.HDR.Display.ColorGamut    = 2
+```
+
+This corrected the HDR image.
+
+### V16: universal NVIDIA / AMD / Intel path
+
+The temporary Intel-only diagnostic guard was removed.
+
+The same runtime path now recognizes:
+
+```text
+NVIDIA  0x10DE
+AMD     0x1002
+Intel   0x8086
+```
+
+When the mod's HDR output toggle is ON, the runtime enables the native UE HDR path and the validated live CVars for all three vendors.
+
+## Current HDR pipeline
+
+```text
+Gori monitor-capability field corrected
+        ↓
+native UE HDR enable path
+        ↓
+live Unreal HDR CVars = 1 / 3 / 2
+        ↓
+Unreal/RHI emits HDR10 metadata
+        ↓
+DXGI checks PQ / Rec.2020 PRESENT support
+        ↓
+missing SetColorSpace1 completed if required
+        ↓
+HDR10 output
+```
+
+The proxy does not generate fake HDR metadata. Unreal must enter its own native HDR path first.
+
+## Runtime values and important RVAs
+
+Retail build values used by the current V16 branch include:
+
+```text
+GPU vendor runtime state          RVA 0x065148E4
+GRHISupportsHDROutput             RVA 0x06514A15
+
+r.HDR.Display.ColorGamut CVar*    RVA 0x0651A3D0
+r.HDR.Display.OutputDevice CVar*  RVA 0x0651A3E8
+r.HDR.EnableHDROutput CVar*       RVA 0x0651A460
+
+UE integer CVar setter            RVA 0x00AB6EB0
+```
+
+These are supported-build addresses, not universal UE5 offsets.
+
+## Safety model
+
+- The original game EXE is not modified.
+- Runtime byte hooks validate the expected supported-build bytes before applying.
+- HDR10 color-space completion is conditional on a successful native Unreal HDR10 metadata event.
+- DXGI `CheckColorSpaceSupport` must report PRESENT support before PQ / Rec.2020 is applied.
+- The old EXE patcher and patched-EXE distribution are retired.
