@@ -4,14 +4,12 @@
 
 This runtime fix repairs HDR in **Gori: Cuddly Carnage** without modifying the game executable.
 
-It fixes Gori's incorrect HDR monitor state, enables Unreal Engine's native HDR path, applies the required live HDR renderer settings, and completes the HDR10 DXGI color-space state when Unreal enters HDR mode.
-
 ### Download
 
-Download the latest release from the GitHub Releases page:
+Download the latest release:
 
 ```text
-Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip
+Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip
 ```
 
 The old EXE patcher is obsolete and is no longer used.
@@ -39,14 +37,26 @@ Typical folder:
 ...\Gori Cuddly Carnage\GoriCuddlyCarnage\Binaries\Win64\
 ```
 
-4. Launch the game normally through Steam.
-5. Press **F10** to show or hide the HDR Control overlay.
+4. Launch normally through Steam.
+5. Press **F10** for the HDR Control overlay.
 
-No EXE patching, backup, or restore operation is required.
+### No log-file clutter
+
+v2.0.1 no longer creates the old diagnostic files:
+
+```text
+GoriHDRFix.log
+GoriHDRTrace.log
+GoriHDRDXGI.log
+```
+
+If those files remain from an older version, delete them once. They will not return with v2.0.1.
+
+Live HDR telemetry is still visible in F10.
 
 ### HDR Control
 
-The validated HDR10 runtime path uses:
+Validated HDR10 runtime path:
 
 ```text
 Enable HDR output   ON
@@ -56,31 +66,17 @@ Use HDR display     ON
 Peak brightness     1000 nits by default
 ```
 
-Peak brightness can be adjusted to suit your display.
-
-The F10 overlay also shows live HDR pipeline telemetry.
+Peak brightness can be adjusted for your display.
 
 ### GPU support
 
-The runtime uses the same HDR path for the three standard desktop GPU vendors:
+The same runtime HDR path is used for:
 
 ```text
 NVIDIA
 AMD
 Intel
 ```
-
-### What the fix changes
-
-At runtime the mod:
-
-- corrects Gori's own HDR monitor-capability field;
-- enables the native Unreal HDR path;
-- sets the live Unreal HDR CVars;
-- waits for Unreal/RHI to emit HDR10 metadata;
-- completes the missing DXGI PQ / Rec.2020 color-space state when supported.
-
-The game executable on disk is never modified.
 
 ### Supported Steam executable
 
@@ -89,4 +85,4 @@ SHA-256:
 2bcd42db186018c3553d3e75dca34891255a3a3e0de3e6e663201febbec5e1d1
 ```
 
-If a future game update changes the executable, a new supported-build revision may be required.
+The game EXE is never modified.

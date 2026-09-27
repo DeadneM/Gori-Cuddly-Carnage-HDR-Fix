@@ -1,11 +1,9 @@
-name: Publish HDR Fix v2.0.0
+name: Publish HDR Fix v2.0.1
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - ".release-payload/**"
       - "README.md"
       - "HASHES.md"
       - "docs/**"
@@ -23,49 +21,103 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct validated v2.0.0 package
-        shell: pwsh
-        run: |
-          $parts = Get-ChildItem ".release-payload/v2.0.0.part*.b64" | Sort-Object Name
-          if (-not $parts) { throw "v2.0.0 release payload parts not found" }
+      - name: Enable MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-          $base64 = ""
-          foreach ($part in $parts) {
-            $base64 += (Get-Content $part.FullName -Raw).Trim()
-          }
-
-          $bytes = [Convert]::FromBase64String($base64)
-          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip"
-          [IO.File]::WriteAllBytes($zip, $bytes)
-
-          $expected = "2ef4c8abf2fca83511632d4482abe174a59c1268646b56dac5e0687f254e0b94"
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          if ($actual -ne $expected) {
-            throw "Release payload hash mismatch. Expected $expected, found $actual"
-          }
-
-          "$actual  $zip" | Set-Content -Encoding ascii SHA256SUMS.txt
-
-      - name: Create or update v2.0.0 release
+      - name: Download validated v2.0.0 source package
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v2.0.0"
-          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip"
+          New-Item -ItemType Directory -Force base | Out-Null
+          gh release download v2.0.0 --pattern "Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip" --dir base
+          Expand-Archive "base/Gori_Cuddly_Carnage_HDR_Fix_v2.0.0.zip" -DestinationPath buildsrc -Force
 
+      - name: Remove disk logger writers
+        shell: pwsh
+        run: |
+          $asiPath = "buildsrc/Source/GoriHDRFix.cpp"
+          $dxgiPath = "buildsrc/Source/dxgi_proxy.cpp"
+
+          $asi = Get-Content $asiPath -Raw
+          $old = 'static void writeLog(const char*m,unsigned long len){wchar_t p[700];sibling(p,700,L"GoriHDRFix.log");HANDLE f=CreateFileW(p,GENERIC_WRITE,FILE_SHARE_READ,0,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,0);if(!f||f==INVALID_HANDLE_VALUE)return;DWORD w=0;WriteFile(f,m,len,&w,0);CloseHandle(f);}'
+          if (-not $asi.Contains($old)) { throw "ASI writeLog signature changed" }
+          $asi = $asi.Replace($old, 'static void writeLog(const char*m,unsigned long len){(void)m;(void)len;}')
+
+          $old = 'static void writeTraceFile(){wchar_t p[700];sibling(p,700,L"GoriHDRTrace.log");HANDLE f=CreateFileW(p,GENERIC_WRITE,FILE_SHARE_READ,0,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,0);if(!f||f==INVALID_HANDLE_VALUE)return;DWORD w=0;WriteFile(f,gTraceBuf,gTraceLen,&w,0);CloseHandle(f);}'
+          if (-not $asi.Contains($old)) { throw "ASI writeTraceFile signature changed" }
+          $asi = $asi.Replace($old, 'static void writeTraceFile(){}')
+
+          $asi = $asi.Replace('V16 UNIVERSAL HDR ACTIVE - NVIDIA / AMD / Intel runtime path','V17 UNIVERSAL HDR ACTIVE - no disk logging')
+          $asi = $asi.Replace('Gori HDR Fix V16 Universal','Gori HDR Fix V17 Universal No-Logs')
+          $asi = $asi.Replace('V16 unsupported on this game build','V17 unsupported on this game build')
+          $asi = $asi.Replace('V4B active; V16 universal HDR runtime hook FAILED or unsupported','V4B active; V17 universal HDR runtime hook FAILED or unsupported')
+          Set-Content $asiPath $asi -Encoding UTF8
+
+          $dx = Get-Content $dxgiPath -Raw
+          $oldDx = 'static bool gLogStarted=false;static void dxlog(const char*m){wchar_t p[520];sibling(p,520,L"GoriHDRDXGI.log");DWORD disp=gLogStarted?OPEN_ALWAYS:CREATE_ALWAYS;DWORD access=gLogStarted?FILE_APPEND_DATA:GENERIC_WRITE;HANDLE f=CreateFileW(p,access,FILE_SHARE_READ,0,disp,FILE_ATTRIBUTE_NORMAL,0);if(!f||f==INVALID_HANDLE_VALUE)return;DWORD n=0;WriteFile(f,m,slen(m),&n,0);CloseHandle(f);gLogStarted=true;}'
+          if (-not $dx.Contains($oldDx)) { throw "DXGI logger signature changed" }
+          $dx = $dx.Replace($oldDx, 'static bool gLogStarted=false;static void dxlog(const char*m){(void)m;}')
+          $dx = $dx.Replace('[V16 completion after native HDR10 metadata]','[V17 completion after native HDR10 metadata]')
+          $dx = $dx.Replace('[V16 completed]','[V17 completed]')
+          Set-Content $dxgiPath $dx -Encoding UTF8
+
+      - name: Build v2.0.1
+        shell: cmd
+        run: |
+          cl /nologo /std:c++17 /O2 /GS- /GR- /LD /Fe:GoriHDRFix.asi buildsrc\Source\GoriHDRFix.cpp kernel32.lib /link /NODEFAULTLIB /ENTRY:DllMain /MACHINE:X64
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++17 /O2 /GS- /GR- /LD /Fe:dxgi.dll buildsrc\Source\dxgi_proxy.cpp kernel32.lib user32.lib gdi32.lib /link /NODEFAULTLIB /ENTRY:DllMain /DEF:buildsrc\Source\dxgi_proxy.def /MACHINE:X64
+          if errorlevel 1 exit /b 1
+
+      - name: Package and hash
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package/Source | Out-Null
+          Copy-Item GoriHDRFix.asi package/GoriHDRFix.asi
+          Copy-Item dxgi.dll package/dxgi.dll
+          Copy-Item buildsrc/Source/GoriHDRFix.cpp package/Source/GoriHDRFix.cpp
+          Copy-Item buildsrc/Source/dxgi_proxy.cpp package/Source/dxgi_proxy.cpp
+          Copy-Item buildsrc/Source/dxgi_proxy.def package/Source/dxgi_proxy.def
+          @'
+          Gori: Cuddly Carnage - HDR Fix v2.0.1
+          ======================================
+
+          Install GoriHDRFix.asi and dxgi.dll beside GoriCuddlyCarnage-Win64-Shipping.exe.
+          Press F10 for HDR Control.
+
+          v2.0.1 removes automatic disk logging. It does not create:
+          - GoriHDRFix.log
+          - GoriHDRTrace.log
+          - GoriHDRDXGI.log
+
+          HDR behavior is unchanged from the validated universal V16 runtime path.
+          NVIDIA / AMD / Intel use the same runtime HDR path.
+          The original game EXE is not modified.
+          '@ | Set-Content package/README.txt -Encoding UTF8
+
+          Compress-Archive -Path package/* -DestinationPath Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip -CompressionLevel Optimal -Force
+
+          $files = @("GoriHDRFix.asi","dxgi.dll","Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip")
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            "$h  $f"
+          }
+          $lines | Set-Content SHA256SUMS.txt -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
+      - name: Publish v2.0.1
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v2.0.1"
+          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip"
           if (gh release view $tag 2>$null) {
             gh release upload $tag $zip SHA256SUMS.txt --clobber
-            gh release edit $tag --title "Gori HDR Fix v2.0.0" --notes-file "docs/RELEASE_NOTES_v2.0.0.md"
+            gh release edit $tag --title "Gori HDR Fix v2.0.1" --notes-file "docs/RELEASE_NOTES_v2.0.1.md"
           } else {
-            gh release create $tag $zip SHA256SUMS.txt --target "${{ github.sha }}" --title "Gori HDR Fix v2.0.0" --notes-file "docs/RELEASE_NOTES_v2.0.0.md"
-          }
-
-      - name: Remove obsolete EXE patcher release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if (gh release view "v1.0.0" 2>$null) {
-            gh release delete "v1.0.0" --yes --cleanup-tag
+            gh release create $tag $zip SHA256SUMS.txt --target "${{ github.sha }}" --title "Gori HDR Fix v2.0.1" --notes-file "docs/RELEASE_NOTES_v2.0.1.md"
           }
