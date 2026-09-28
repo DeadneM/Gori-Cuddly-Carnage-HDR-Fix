@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      - ".release-payload/v2.0.2*"
+      - ".release-payload/v2.0.2.release.part*.b64"
+      - ".release-payload/v2.0.2.source.part*.b64"
       - "README.md"
       - "HASHES.md"
       - "docs/**"
@@ -25,23 +26,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify validated payloads
+      - name: Reconstruct validated V20 payloads
         shell: pwsh
         run: |
-          $releasePayload = ".release-payload/v2.0.2.zip"
-          $sourcePayload = ".release-payload/v2.0.2-sources.zip"
+          function Decode-Parts($pattern, $outFile) {
+            $parts = Get-ChildItem $pattern | Sort-Object Name
+            if (-not $parts) { throw "Payload parts not found: $pattern" }
 
-          if (-not (Test-Path $releasePayload)) { throw "Validated v2.0.2 release payload missing" }
-          if (-not (Test-Path $sourcePayload)) { throw "Validated v2.0.2 source payload missing" }
+            $base64 = ""
+            foreach ($part in $parts) {
+              $base64 += (Get-Content $part.FullName -Raw).Trim()
+            }
+
+            [IO.File]::WriteAllBytes($outFile, [Convert]::FromBase64String($base64))
+          }
+
+          Decode-Parts ".release-payload/v2.0.2.release.part*.b64" "Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip"
+          Decode-Parts ".release-payload/v2.0.2.source.part*.b64" "v2.0.2-sources.zip"
 
           $expectedRelease = "179468f462354c0319a96ef4b69a66b758b72c34a57dddbc93585708cdb04979"
-          $actualRelease = (Get-FileHash $releasePayload -Algorithm SHA256).Hash.ToLower()
+          $actualRelease = (Get-FileHash "Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip" -Algorithm SHA256).Hash.ToLower()
           if ($actualRelease -ne $expectedRelease) {
             throw "Release payload hash mismatch. Expected $expectedRelease, found $actualRelease"
           }
 
           $expectedSource = "42c70f02343d55183ebd219c010412d0c5043b02b30d6c78dff9f54addca4917"
-          $actualSource = (Get-FileHash $sourcePayload -Algorithm SHA256).Hash.ToLower()
+          $actualSource = (Get-FileHash "v2.0.2-sources.zip" -Algorithm SHA256).Hash.ToLower()
           if ($actualSource -ne $expectedSource) {
             throw "Source payload hash mismatch. Expected $expectedSource, found $actualSource"
           }
@@ -51,7 +61,7 @@ jobs:
         run: |
           if (Test-Path Source) { Remove-Item Source -Recurse -Force }
           New-Item -ItemType Directory -Force Source | Out-Null
-          Expand-Archive ".release-payload/v2.0.2-sources.zip" -DestinationPath Source -Force
+          Expand-Archive "v2.0.2-sources.zip" -DestinationPath Source -Force
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -65,23 +75,15 @@ jobs:
           $sourceCommit = (git rev-parse HEAD).Trim()
           "SOURCE_COMMIT=$sourceCommit" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Prepare exact validated release
+      - name: Verify runtime files and checksums
         shell: pwsh
         run: |
-          $zip = "Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip"
-          Copy-Item ".release-payload/v2.0.2.zip" $zip -Force
-
-          $expected = "179468f462354c0319a96ef4b69a66b758b72c34a57dddbc93585708cdb04979"
-          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          if ($actual -ne $expected) {
-            throw "Final release ZIP mismatch. Expected $expected, found $actual"
-          }
-
           if (Test-Path verify) { Remove-Item verify -Recurse -Force }
-          Expand-Archive $zip -DestinationPath verify -Force
+          Expand-Archive "Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip" -DestinationPath verify -Force
 
           $asi = (Get-FileHash "verify/GoriHDRFix.asi" -Algorithm SHA256).Hash.ToLower()
           $dxgi = (Get-FileHash "verify/dxgi.dll" -Algorithm SHA256).Hash.ToLower()
+          $zip = (Get-FileHash "Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip" -Algorithm SHA256).Hash.ToLower()
 
           if ($asi -ne "e95c90d48c49e4ef94b5f7ad12c95524025add9dab5ba4a7cf2be57768e008c7") {
             throw "ASI hash mismatch"
@@ -93,7 +95,7 @@ jobs:
           @(
             "$asi  GoriHDRFix.asi"
             "$dxgi  dxgi.dll"
-            "$actual  $zip"
+            "$zip  Gori_Cuddly_Carnage_HDR_Fix_v2.0.2.zip"
           ) | Set-Content SHA256SUMS.txt -Encoding ascii
 
       - name: Create or update v2.0.2 release
