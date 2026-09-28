@@ -6,106 +6,66 @@
 
 A runtime HDR fix for **Gori: Cuddly Carnage** on Windows.
 
-The fix uses a small **DXGI proxy + ASI runtime module**. It repairs Gori's HDR detection, enables Unreal Engine's real HDR path, keeps the live HDR renderer CVars coherent, and provides an in-game **F10 HDR Control** overlay.
+## Current release
+
+**v2.0.2 / V20**
+
+This is the current validated build.
+
+It fixes Gori's HDR path without modifying the game executable and now includes:
+
+- working HDR activation;
+- NVIDIA / AMD / Intel support;
+- synchronization with Gori's own HDR ON/OFF setting;
+- a working F10 HDR control overlay;
+- persistent mod settings through `GoriHDRFix.ini`;
+- improved multi-monitor handling;
+- no diagnostic log files.
 
 ## Download
 
 Use the latest package from the repository's **Releases** page.
 
-**Current public version: v2.0.1**
+The public archive contains only:
 
-v2.0.1 is the cleaned-up V17 runtime build. The HDR implementation is unchanged from the working universal V16 path, but automatic disk diagnostic logging has been removed.
+```text
+GoriHDRFix.asi
+dxgi.dll
+README.txt
+```
 
-The old EXE patcher is obsolete and is no longer used.
+Source code is kept in the repository under `Source/` and is intentionally not included in the release ZIP.
 
 ## Installation
 
-1. Close Gori.
-2. Download and extract `Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip`.
-3. Copy these two files next to `GoriCuddlyCarnage-Win64-Shipping.exe`:
+Copy:
 
 ```text
 GoriHDRFix.asi
 dxgi.dll
 ```
 
+next to:
+
+```text
+GoriCuddlyCarnage-Win64-Shipping.exe
+```
+
 Typical folder:
 
 ```text
-...\Gori Cuddly Carnage\GoriCuddlyCarnage\Binaries\Win64\
+...\Steam\steamapps\common\Gori Cuddly Carnage\GoriCuddlyCarnage\Binaries\Win64\
 ```
 
-4. Launch Gori normally through Steam.
-5. Press **F10** to open or hide the HDR Control overlay.
+Launch the game normally through Steam.
 
-No game EXE is modified and no backup/restore step is required.
+Press **F10** to open or close HDR Control.
 
-## No automatic log files
+No external ASI loader is required: the included `dxgi.dll` proxy loads `GoriHDRFix.asi`.
 
-Starting with v2.0.1, launching the game no longer creates:
+## HDR Control
 
-```text
-GoriHDRFix.log
-GoriHDRTrace.log
-GoriHDRDXGI.log
-```
-
-Live HDR telemetry is still available directly in the F10 overlay.
-
-If old log files from v2.0.0 or earlier are still present, they can be deleted once. v2.0.1 will not recreate them.
-
-## What the fix does
-
-### 1. Gori monitor-capability fix
-
-The validated V4B discovery is preserved at runtime:
-
-```text
-GraphicSettings.DoesMonitorHaveHDRSupport
-OptionsData + 0x115 = TRUE
-```
-
-### 2. Native Unreal HDR activation
-
-When **Enable HDR output** is ON, the same runtime path is used for:
-
-```text
-NVIDIA  0x10DE
-AMD     0x1002
-Intel   0x8086
-```
-
-There is no vendor-specific Intel lock.
-
-### 3. Live Unreal HDR CVars
-
-The actual runtime console variables are set through Unreal's own CVar path:
-
-```text
-r.HDR.EnableHDROutput       = 1
-r.HDR.Display.OutputDevice  = 3
-r.HDR.Display.ColorGamut    = 2
-```
-
-This is the step that corrected the previously oversaturated HDR output.
-
-### 4. DXGI HDR10 completion
-
-The DXGI proxy does **not** blindly force HDR10 at startup.
-
-It waits for Unreal/RHI to emit native HDR10 metadata, then checks DXGI support and completes the missing PQ / Rec.2020 color-space state only when required:
-
-```text
-Unreal/RHI SetHDRMetaData(HDR10)
-        ↓
-CheckColorSpaceSupport(PQ / Rec.2020)
-        ↓
-SetColorSpace1(PQ / Rec.2020)
-```
-
-## F10 HDR Control
-
-Validated HDR10 defaults:
+Recommended HDR10 defaults:
 
 ```text
 Enable HDR output   ON
@@ -117,11 +77,31 @@ Peak brightness     1000 nits
 
 Peak brightness can be adjusted for your display.
 
-The overlay also reports the active swapchain format, HDR metadata state, color-space state, and runtime CVar values.
+Changes made from the mod menu are saved to:
 
-## Supported game build
+```text
+GoriHDRFix.ini
+```
 
-Current runtime offsets are for this Steam x64 executable:
+beside the ASI and restored at the next launch.
+
+Gori's own HDR ON/OFF setting is also followed by the runtime fix.
+
+## Multi-monitor behavior
+
+The current build checks the output actually containing the game swapchain instead of assuming HDR capability from the GPU alone.
+
+A known SDR output suspends HDR output, while a valid HDR output can use the normal HDR10 path. Moving or resizing the game causes the output state to be checked again.
+
+## GPU support
+
+```text
+NVIDIA
+AMD
+Intel
+```
+
+## Supported Steam executable
 
 ```text
 GoriCuddlyCarnage-Win64-Shipping.exe
@@ -129,14 +109,20 @@ SHA-256:
 2bcd42db186018c3553d3e75dca34891255a3a3e0de3e6e663201febbec5e1d1
 ```
 
-## Checksums
+## Uninstallation
 
-Each release includes `SHA256SUMS.txt` generated from the exact published archive and binaries.
+Delete:
 
-See [HASHES.md](HASHES.md) for the supported retail EXE hash and release notes.
+```text
+GoriHDRFix.asi
+dxgi.dll
+GoriHDRFix.ini
+```
 
-## Technical history
+The original game executable is never modified.
 
-See [Technical Notes](docs/TECHNICAL_NOTES.md) for the full reverse-engineering history from V4B through V17.
+## Technical information
 
-A ready-to-paste community guide is available in [Steam Guide](docs/STEAM_GUIDE.md).
+See [Technical Notes](docs/TECHNICAL_NOTES.md).
+
+A simple Steam Community guide draft is available in [Steam Guide](docs/STEAM_GUIDE.md).

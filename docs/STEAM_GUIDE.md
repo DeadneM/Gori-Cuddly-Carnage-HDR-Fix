@@ -1,88 +1,96 @@
-# Steam Community Guide Draft
+# Gori: Cuddly Carnage - HDR Fix
 
-## Gori: Cuddly Carnage - HDR Fix
+This mod fixes HDR support in **Gori: Cuddly Carnage** on PC.
 
-This runtime fix repairs HDR in **Gori: Cuddly Carnage** without modifying the game executable.
+It restores proper HDR output and adds a small in-game HDR control menu.
 
-### Download
+## Features
 
-Download the latest release:
+- Fixes HDR detection
+- Enables HDR properly in-game
+- Supports NVIDIA, AMD and Intel GPUs
+- Includes an in-game HDR menu
+- Remembers your HDR settings
+- Improved support for multiple monitors
+- Does not modify the game executable
+- No log files are created
+- Easy installation
 
-```text
-Gori_Cuddly_Carnage_HDR_Fix_v2.0.1.zip
-```
+## Download
 
-The old EXE patcher is obsolete and is no longer used.
+Download the latest release from GitHub:
 
-### Installation
+https://github.com/DeadneM/Gori-Cuddly-Carnage-HDR-Fix/releases/latest
 
-1. Close Gori.
-2. Extract the release archive.
-3. Copy:
+## Installation
+
+Extract the archive and copy:
 
 ```text
 GoriHDRFix.asi
 dxgi.dll
 ```
 
-next to:
+into the folder containing:
 
 ```text
 GoriCuddlyCarnage-Win64-Shipping.exe
 ```
 
-Typical folder:
+Usually:
 
 ```text
-...\Gori Cuddly Carnage\GoriCuddlyCarnage\Binaries\Win64\
+...\Steam\steamapps\common\Gori Cuddly Carnage\GoriCuddlyCarnage\Binaries\Win64\
 ```
 
-4. Launch normally through Steam.
-5. Press **F10** for the HDR Control overlay.
+Then launch the game normally through Steam.
 
-### No log-file clutter
+No additional ASI loader is required.
 
-v2.0.1 no longer creates the old diagnostic files:
+## HDR Menu
+
+Press:
 
 ```text
-GoriHDRFix.log
-GoriHDRTrace.log
-GoriHDRDXGI.log
+F10
 ```
 
-If those files remain from an older version, delete them once. They will not return with v2.0.1.
+to open or close HDR Control.
 
-Live HDR telemetry is still visible in F10.
-
-### HDR Control
-
-Validated HDR10 runtime path:
+Recommended settings:
 
 ```text
 Enable HDR output   ON
 Output device       3
 Color gamut         2
 Use HDR display     ON
-Peak brightness     1000 nits by default
+Peak brightness     1000 nits
 ```
 
-Peak brightness can be adjusted for your display.
+You can adjust peak brightness for your monitor or TV.
 
-### GPU support
+Your mod settings are remembered after restarting the game.
 
-The same runtime HDR path is used for:
+Gori's own HDR ON/OFF option also works with the fix.
+
+## Uninstallation
+
+Delete:
 
 ```text
-NVIDIA
-AMD
-Intel
+GoriHDRFix.asi
+dxgi.dll
+GoriHDRFix.ini
 ```
 
-### Supported Steam executable
+The original game files are not modified.
 
-```text
-SHA-256:
-2bcd42db186018c3553d3e75dca34891255a3a3e0de3e6e663201febbec5e1d1
-```
+## Notes
 
-The game EXE is never modified.
+Make sure HDR is enabled in Windows and on your display.
+
+The current build also handles systems with multiple monitors more safely than older versions.
+
+## Source Code
+
+https://github.com/DeadneM/Gori-Cuddly-Carnage-HDR-Fix
